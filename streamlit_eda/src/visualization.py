@@ -427,3 +427,269 @@ def visualize_rolling_correlation(
         return area + zero_rule + overall_rule + line
 
     return area + zero_rule + line
+
+
+# ── Strategy Selection EDA ─────────────────────────────────────────────────────
+
+def visualize_acf_chart(acf_values: np.ndarray, ci_bound: float, n_lags: int = 40) -> alt.Chart:
+    """ACF bar chart with 95% CI bands."""
+    acf_df = pd.DataFrame({
+        "Lag": list(range(1, n_lags + 1)),
+        "ACF": acf_values[1 : n_lags + 1],
+    })
+    acf_df["Color"] = np.where(acf_df["ACF"] >= 0, "steelblue", "tomato")
+
+    bars = (
+        alt.Chart(acf_df)
+        .mark_bar(width=8)
+        .encode(
+            x=alt.X("Lag:O", title="Lag"),
+            y=alt.Y("ACF:Q", title="Autocorrelation"),
+            color=alt.Color("Color:N", scale=None),
+            tooltip=[alt.Tooltip("Lag:O"), alt.Tooltip("ACF:Q", format=".4f")],
+        )
+    )
+
+    ci_df = pd.DataFrame({"y": [ci_bound, -ci_bound]})
+    ci_lines = (
+        alt.Chart(ci_df)
+        .mark_rule(color="red", strokeDash=[4, 4], opacity=0.7)
+        .encode(y="y:Q")
+    )
+
+    zero_rule = (
+        alt.Chart(pd.DataFrame({"y": [0]}))
+        .mark_rule(color="black", opacity=0.4)
+        .encode(y="y:Q")
+    )
+
+    return (
+        (bars + ci_lines + zero_rule)
+        .properties(title="Autocorrelation Function (ACF) of Log Returns", height=250)
+        .interactive()
+    )
+
+
+def visualize_hurst_rs_chart(log_w: np.ndarray, log_rs: np.ndarray, H: float) -> alt.Chart:
+    """R/S scatter with fitted line and random-walk reference."""
+    fit = np.polyfit(log_w, log_rs, 1)
+    fitted_y = np.polyval(fit, log_w)
+    rw_intercept = np.mean(log_rs) - 0.5 * np.mean(log_w)
+    rw_y = 0.5 * log_w + rw_intercept
+
+    scatter_df = pd.DataFrame({"log(Window)": log_w, "log(R/S)": log_rs})
+    line_df = pd.DataFrame({
+        "log(Window)": log_w,
+        "Fitted": fitted_y,
+        "Random Walk": rw_y,
+    })
+
+    scatter = (
+        alt.Chart(scatter_df)
+        .mark_circle(color="steelblue", size=60, opacity=0.7)
+        .encode(
+            x=alt.X("log(Window):Q", title="log(Window Size)"),
+            y=alt.Y("log(R/S):Q", title="log(R/S)"),
+            tooltip=[
+                alt.Tooltip("log(Window):Q", format=".2f"),
+                alt.Tooltip("log(R/S):Q", format=".2f"),
+            ],
+        )
+    )
+
+    fit_line = (
+        alt.Chart(line_df)
+        .mark_line(color="orange", strokeWidth=2)
+        .encode(
+            x="log(Window):Q",
+            y=alt.Y("Fitted:Q", title="log(R/S)"),
+        )
+    )
+
+    rw_line = (
+        alt.Chart(line_df)
+        .mark_line(color="gray", strokeDash=[4, 4], strokeWidth=1.5)
+        .encode(x="log(Window):Q", y="Random Walk:Q")
+    )
+
+    return (
+        (scatter + fit_line + rw_line)
+        .properties(title=f"R/S Analysis — Hurst Exponent H = {H:.4f}", height=280)
+        .interactive()
+    )
+
+
+def visualize_variance_ratio_chart(vr_df: pd.DataFrame) -> alt.Chart:
+    """Bar chart of VR(k) − 1 for each lag."""
+    plot_df = vr_df.copy()
+    plot_df["VR - 1"] = plot_df["VR(k)"] - 1
+    plot_df["Color"] = plot_df["VR(k)"].apply(lambda x: "#FF5722" if x > 1 else "#2196F3")
+    plot_df["Lag"] = plot_df["Lag (k)"].astype(str)
+
+    bars = (
+        alt.Chart(plot_df)
+        .mark_bar(opacity=0.75)
+        .encode(
+            x=alt.X("Lag:O", title="Lag (k)", sort=plot_df["Lag"].tolist()),
+            y=alt.Y("VR - 1:Q", title="VR(k) − 1"),
+            color=alt.Color("Color:N", scale=None),
+            tooltip=[
+                alt.Tooltip("Lag (k):Q"),
+                alt.Tooltip("VR(k):Q", format=".4f"),
+                alt.Tooltip("z-stat:Q", format=".4f"),
+                alt.Tooltip("p-value:Q", format=".4f"),
+                alt.Tooltip("Signal:N"),
+            ],
+        )
+    )
+
+    zero_rule = (
+        alt.Chart(pd.DataFrame({"y": [0]}))
+        .mark_rule(color="gray", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+
+    return (bars + zero_rule).properties(
+        title="Variance Ratio — Red: Trend Following  |  Blue: Mean Reversion",
+        height=250,
+    )
+
+
+def visualize_half_life_spread_chart(
+    close: pd.Series, sma_window: int = 50, half_life: float = None
+) -> alt.Chart:
+    """Price deviation from SMA with above/below zero fill."""
+    spread = (close - close.rolling(sma_window).mean()).dropna()
+    df = pd.DataFrame({"Date": spread.index, "Spread": spread.values})
+    df["Date"] = pd.to_datetime(df["Date"]).dt.tz_localize(None)
+    df["zero"] = 0.0
+
+    area = (
+        alt.Chart(df)
+        .mark_area(color="steelblue", opacity=0.2)
+        .encode(
+            x="Date:T",
+            y=alt.Y("Spread:Q", scale=alt.Scale(zero=True)),
+            y2="zero:Q",
+        )
+    )
+
+    line = (
+        alt.Chart(df)
+        .mark_line(color="steelblue", strokeWidth=1, opacity=0.8)
+        .encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("Spread:Q", title=f"Deviation from SMA({sma_window})"),
+            tooltip=[
+                alt.Tooltip("Date:T", format="%Y-%m-%d"),
+                alt.Tooltip("Spread:Q", format=",.2f"),
+            ],
+        )
+    )
+
+    zero_rule = (
+        alt.Chart(pd.DataFrame({"y": [0]}))
+        .mark_rule(color="black", opacity=0.4)
+        .encode(y="y:Q")
+    )
+
+    hl_str = (
+        f"{half_life:.1f} days"
+        if (half_life is not None and not np.isinf(half_life))
+        else "∞"
+    )
+    title = f"Price Deviation from SMA({sma_window}) — Half-life = {hl_str}"
+    return (area + line + zero_rule).properties(title=title, height=250).interactive()
+
+
+def visualize_rolling_regime_chart(roll_hurst: pd.Series, roll_vr: pd.Series, window: int = 252) -> alt.Chart:
+    """Rolling Hurst and VR(10) with regime-shaded fills."""
+    # --- Hurst ---
+    hdf = pd.DataFrame({"Date": roll_hurst.dropna().index, "Hurst": roll_hurst.dropna().values})
+    hdf["Date"] = pd.to_datetime(hdf["Date"]).dt.tz_localize(None)
+    hdf["ref"] = 0.5
+    hdf["trend_top"] = hdf["Hurst"].clip(lower=0.5)
+    hdf["rev_bot"] = hdf["Hurst"].clip(upper=0.5)
+
+    h_trend_area = (
+        alt.Chart(hdf)
+        .mark_area(color="#FF5722", opacity=0.3)
+        .encode(
+            x="Date:T",
+            y=alt.Y("trend_top:Q", scale=alt.Scale(domain=[0.2, 0.8])),
+            y2="ref:Q",
+        )
+    )
+    h_rev_area = (
+        alt.Chart(hdf)
+        .mark_area(color="#2196F3", opacity=0.3)
+        .encode(
+            x="Date:T",
+            y=alt.Y("ref:Q", scale=alt.Scale(domain=[0.2, 0.8])),
+            y2="rev_bot:Q",
+        )
+    )
+    h_line = (
+        alt.Chart(hdf)
+        .mark_line(color="purple", strokeWidth=1.5)
+        .encode(
+            x=alt.X("Date:T", title=None),
+            y=alt.Y("Hurst:Q", scale=alt.Scale(domain=[0.2, 0.8]), title="Hurst Exponent"),
+            tooltip=[
+                alt.Tooltip("Date:T", format="%Y-%m-%d"),
+                alt.Tooltip("Hurst:Q", format=".4f"),
+            ],
+        )
+        .properties(
+            height=180,
+            title=f"Rolling Hurst Exponent ({window}-day window)  |  Orange = Trending  |  Blue = Mean Reverting",
+        )
+    )
+    h_ref = (
+        alt.Chart(pd.DataFrame({"y": [0.5]}))
+        .mark_rule(color="gray", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+    hurst_chart = h_trend_area + h_rev_area + h_line + h_ref
+
+    # --- VR(10) ---
+    vdf = pd.DataFrame({"Date": roll_vr.dropna().index, "VR": roll_vr.dropna().values})
+    vdf["Date"] = pd.to_datetime(vdf["Date"]).dt.tz_localize(None)
+    vdf["ref"] = 1.0
+    vdf["trend_top"] = vdf["VR"].clip(lower=1.0)
+    vdf["rev_bot"] = vdf["VR"].clip(upper=1.0)
+
+    v_trend_area = (
+        alt.Chart(vdf)
+        .mark_area(color="#FF5722", opacity=0.3)
+        .encode(x="Date:T", y="trend_top:Q", y2="ref:Q")
+    )
+    v_rev_area = (
+        alt.Chart(vdf)
+        .mark_area(color="#2196F3", opacity=0.3)
+        .encode(x="Date:T", y="ref:Q", y2="rev_bot:Q")
+    )
+    v_line = (
+        alt.Chart(vdf)
+        .mark_line(color="darkorange", strokeWidth=1.5)
+        .encode(
+            x=alt.X("Date:T", title="Date"),
+            y=alt.Y("VR:Q", title="VR(10)"),
+            tooltip=[
+                alt.Tooltip("Date:T", format="%Y-%m-%d"),
+                alt.Tooltip("VR:Q", format=".4f"),
+            ],
+        )
+        .properties(
+            height=180,
+            title=f"Rolling Variance Ratio VR(10) ({window}-day window)  |  Orange = Trending  |  Blue = Mean Reverting",
+        )
+    )
+    v_ref = (
+        alt.Chart(pd.DataFrame({"y": [1.0]}))
+        .mark_rule(color="gray", strokeDash=[4, 4])
+        .encode(y="y:Q")
+    )
+    vr_chart = v_trend_area + v_rev_area + v_line + v_ref
+
+    return alt.vconcat(hurst_chart, vr_chart).resolve_scale(x="shared")

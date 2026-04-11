@@ -13,6 +13,7 @@ pages = st.navigation([
     st.Page("pages/4_Seasonality.py",         title="Seasonality",          icon=":material/calendar_month:"),
     st.Page("pages/5_Volatility_Structure.py", title="Volatility Structure",  icon=":material/waves:"),
     st.Page("pages/6_External_Correlation.py", title="External Correlation",  icon=":material/trending_up:"),
+    st.Page("pages/7_Strategy_Recommendation.py", title="Strategy Recommendation", icon=":material/recommend:"),
 ])
 
 pages.run()
