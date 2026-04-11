@@ -1,0 +1,6 @@
+bt
+TA-Lib
+mlfinpy
+scikit-learn
+yfinance
+hyperopt
