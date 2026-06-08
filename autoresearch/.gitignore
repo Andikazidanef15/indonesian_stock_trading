@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info
+.venv/
+
+# Data (populated by prepare.py — do not commit)
+data/
+
+# Per-run log
+run.log
+
+# Results ledger (untracked intentionally — stays local)
+results.tsv
+
+# Agent prompt files (generated per-session)
+CLAUDE.md
+AGENTS.md
+
+# Misc
+.DS_Store
